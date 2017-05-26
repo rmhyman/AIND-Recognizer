@@ -93,6 +93,7 @@ class SelectorBIC(ModelSelector):
                     if self.verbose:
                         print("Not able to score for model on {} in BIC model selection.  "
                               "Skipping model with {} hiddent states".format(self.this_word,n_states))
+                    continue
         return best_model
 
 
@@ -140,6 +141,7 @@ class SelectorDIC(ModelSelector):
                     if self.verbose:
                         print("Not able to score for model on {} in DIC model selection. "
                               "Skipping model with {} hidden states".format(self.this_word,n_states))
+                    continue
 
         return best_model
 
@@ -175,4 +177,5 @@ class SelectorCV(ModelSelector):
                     if self.verbose:
                         print("Not able to score for model on {} in CV model selection. "
                                 "Skipping model with {} hidden states".format(self.this_word,n_states))
+                    continue
         return best_model
