@@ -68,6 +68,15 @@ class SelectorBIC(ModelSelector):
     Bayesian information criteria: BIC = -2 * logL + p * logN
     """
 
+    def get_data_point_and_parameter_value(self,n_states):
+        N, f = self.X.shape
+
+        '''
+        Number of free parameters is the sum of the transition probabilites,
+        The start probabilities, the number of means, and the number of covariances
+        '''
+        p = n_states**2 + (2 * n_states * f) - 1
+        return N,p
     def select(self):
         """ select the best model for self.this_word based on
         BIC score for n between self.min_n_components and self.max_n_components
@@ -81,8 +90,7 @@ class SelectorBIC(ModelSelector):
             model = self.base_model(n_states)
             if model != None:
                 try:
-                    p = model.n_features
-                    N = np.sum(self.lengths)
+                    N,p = self.get_data_point_and_parameter_value(n_states)
                     logl = model.score(self.X, self.lengths)
                     bic = -2 * logl * p * math.log(N)
 
@@ -110,8 +118,9 @@ class SelectorDIC(ModelSelector):
     def compute_sum_of_likelihoods(self,model):
         likelihoods = []
         for key in self.hwords:
-            X, lengths = self.hwords[key]
-            likelihoods.append(model.score(X,lengths))
+            if key != self.this_word:
+                X, lengths = self.hwords[key]
+                likelihoods.append(model.score(X,lengths))
         return np.sum(likelihoods)
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -119,7 +128,7 @@ class SelectorDIC(ModelSelector):
         M = number of training words
         Need to compute the log-likihoods of all of the other words besides the current word
         """
-        max_score = float('inf')
+        max_score = float('-inf')
         best_model = None
 
         for n_states in range(self.min_n_components, self.max_n_components + 1):
@@ -130,11 +139,10 @@ class SelectorDIC(ModelSelector):
                     logL = model.score(self.X,self.lengths)
                     M = len(self.hwords)
 
-                    #To get the proper sum, we will subtract the logL from the sum_of_likelihoods value
-                    likelihood_sum_value = sum_of_likelihoods - logL
-                    DIC = logL - (1/M-1) * likelihood_sum_value
 
-                    if DIC < max_score:
+                    DIC = logL - (1/M-1) * sum_of_likelihoods
+
+                    if DIC > max_score:
                         max_score = DIC
                         best_model = model
                 except:
@@ -153,29 +161,46 @@ class SelectorCV(ModelSelector):
 
     '''
 
+    def base_model(self, num_states,X,lengths):
+        # with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        # warnings.filterwarnings("ignore", category=RuntimeWarning)
+        try:
+            hmm_model = GaussianHMM(n_components=num_states, covariance_type="diag", n_iter=1000,
+                                    random_state=self.random_state, verbose=False).fit(X,lengths)
+            if self.verbose:
+                print("model created for {} with {} states".format(self.this_word, num_states))
+            return hmm_model
+        except:
+            if self.verbose:
+                print("failure on {} with {} states".format(self.this_word, num_states))
+            return None
+
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         best_avg = float("-inf")
         best_model = None
         for n_states in range(self.min_n_components, self.max_n_components + 1):
             logl_values = []
-            model = self.base_model(n_states)
-            if model != None:
-                try:
-                    split_method = KFold()
-                    for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
-                        X,lengths = combine_sequences(cv_train_idx,self.sequences)
-                        logl_values.append(model.score(X,lengths))
 
-                    avg_log = np.mean(logl_values)
-                    if avg_log > best_avg:
-                        best_avg = avg_log
-                        best_model = model
-                except:
-                    if best_model == None:
-                        best_model = model
-                    if self.verbose:
-                        print("Not able to score for model on {} in CV model selection. "
-                                "Skipping model with {} hidden states".format(self.this_word,n_states))
-                    continue
+            try:
+                best_model = self.base_model(n_states,self.X,self.lengths)
+                split_method = KFold()
+                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                    X,lengths = combine_sequences(cv_train_idx,self.sequences)
+                    model = self.base_model(n_states,X,lengths)
+                    if model != None:
+                        X_test,lengths_test = combine_sequences(cv_test_idx,self.sequences)
+                        logl_values.append(model.score(X_test,lengths_test))
+
+                avg_log = np.mean(logl_values)
+                if avg_log > best_avg:
+                    best_avg = avg_log
+                    best_model = model
+            except:
+
+                if self.verbose:
+                    print("Not able to score for model on {} in CV model selection. "
+                            "Skipping model with {} hidden states".format(self.this_word,n_states))
+                continue
         return best_model
